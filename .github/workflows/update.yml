@@ -24,10 +24,19 @@ jobs:
       - name: Run fetch and build script
         run: python fetch_and_build_clash.py
 
-      - name: Commit and push updated YAML
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ProjectAinita_Clash.yaml
-          git diff --quiet && echo "No changes to commit" || git commit -m "Auto-update Clash config"
-          git push
+- name: Commit and push updated YAML
+  run: |
+    git config user.name "github-actions[bot]"
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+    git add ProjectAinita_Clash.yaml
+    echo "Git diff stat:"
+    git diff --stat --cached || echo "No staged changes"
+    echo "File content:"
+    cat ProjectAinita_Clash.yaml
+    if git diff --cached --quiet; then
+      echo "No changes to commit"
+    else
+      git commit -m "Auto-update Clash config"
+      git push
+    fi
+

@@ -1,9 +1,9 @@
 proxies: []
 proxy-groups:
-- interval: 300
-  name: Auto
-  proxies: []
+- name: Auto
   type: url-test
+  proxies: []
   url: http://www.gstatic.com/generate_204
+  interval: 300
 rules:
 - MATCH,Auto

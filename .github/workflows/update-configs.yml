@@ -25,15 +25,20 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests PyYAML
     
+    - name: Debug directory contents
+      run: |
+        pwd
+        ls -la
+    
     - name: Run config fetcher
       run: |
         python fetch_configs.py
       continue-on-error: false
     
-    - name: Check if configs.yaml exists
+    - name: Check if ProjectAinita_Clash.yaml exists
       run: |
-        if [ ! -f configs.yaml ]; then
-          echo "configs.yaml was not created!"
+        if [ ! -f ProjectAinita_Clash.yaml ]; then
+          echo "ProjectAinita_Clash.yaml was not created!"
           exit 1
         fi
     
@@ -41,10 +46,10 @@ jobs:
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add configs.yaml
+        git add ProjectAinita_Clash.yaml
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else
-          git commit -m "Update configs [skip ci]"
+          git commit -m "Update ProjectAinita_Clash.yaml [skip ci]"
           git push
         fi

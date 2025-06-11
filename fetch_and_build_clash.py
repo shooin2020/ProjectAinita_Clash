@@ -1,154 +1,114 @@
 import requests
 import yaml
 import socket
-import logging
-from urllib.parse import urlparse, parse_qs
-import base64
-import re
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+# لینک فایل config سرورها (می تونی اینجا تغییر بدی)
 CONFIG_URL = "https://raw.githubusercontent.com/4n0nymou3/ss-config-updater/refs/heads/main/configs.txt"
 
-def fetch_config_txt(url):
-    logging.info(f"Fetching config from: {url}")
-    r = requests.get(url)
-    r.raise_for_status()
-    return r.text
+def dns_lookup(hostname):
+    try:
+        return socket.gethostbyname(hostname)
+    except Exception as e:
+        print(f"خطا در DNS lookup برای {hostname}: {e}")
+        return hostname  # اگر نشد، همون hostname رو برگردون
 
-def clean_ss_link(ss_link):
-    # حذف کوئری استرینگ و فاصله‌ها
-    ss_link = ss_link.strip()
-    if '?' in ss_link:
-        ss_link = ss_link.split('?')[0]
-    return ss_link
-
-def parse_ss_link(ss_link):
-    """
-    پارس کردن لینک ss://
-    خروجی: دیکشنری شامل {server, port, cipher, password}
-    """
-    # حذف prefix ss://
-    if not ss_link.startswith("ss://"):
-        raise ValueError("Not a valid ss link")
-
-    content = ss_link[5:]  # بعد از ss://
-
-    # دو حالت:
-    # 1- لینک به صورت base64 رمزنگاری شده است، که به شکل: ss://base64_string
-    # 2- لینک به صورت مستقیم به شکل cipher:password@host:port
-
-    # حالت base64 رو چک می‌کنیم
-    if '@' not in content:
-        # base64 decode
+def parse_ss_url(ss_url):
+    # ss://{method}:{password}@{hostname}:{port}#{name}
+    # یا ممکنه ss:// base64encoded...
+    # برای ساده‌سازی اینجا فقط قسمت‌های معمول رو می‌گیریم
+    if ss_url.startswith("ss://"):
+        # حذف ss://
+        content = ss_url[5:]
+        # جدا کردن نام سرور (بعد از #)
+        if '#' in content:
+            content, name = content.split('#', 1)
+        else:
+            name = "Unnamed"
+        # اگر base64 باشه ساده نیست، فرض می‌کنیم این شکل است:
+        # method:password@hostname:port
         try:
-            # padding اگر نداشت اضافه کنیم
-            padding = len(content) % 4
-            if padding != 0:
-                content += "=" * (4 - padding)
-            decoded = base64.urlsafe_b64decode(content).decode()
-            # decoded نمونه: chacha20-ietf-poly1305:password@host:port
-            content = decoded
+            creds, host_port = content.split('@')
+            method, password = creds.split(':')
+            hostname, port = host_port.split(':')
+            port = int(port)
         except Exception as e:
-            raise ValueError(f"Base64 decode error: {e}")
-
-    # حالا content باید به شکل cipher:password@host:port باشد
-    try:
-        userinfo, serverinfo = content.split('@')
-        cipher, password = userinfo.split(':', 1)
-        host, port = serverinfo.split(':', 1)
-    except Exception as e:
-        raise ValueError(f"Parsing ss link failed: {e}")
-
-    return {
-        "server": host,
-        "port": int(port),
-        "cipher": cipher,
-        "password": password,
-    }
-
-def resolve_ip(hostname):
-    try:
-        ip = socket.gethostbyname(hostname)
-        return ip
-    except Exception as e:
-        logging.warning(f"Failed to resolve hostname {hostname}: {e}")
+            print(f"خطا در پارس کردن لینک {ss_url}: {e}")
+            return None
+        return {
+            "name": name,
+            "method": method,
+            "password": password,
+            "hostname": hostname,
+            "port": port
+        }
+    else:
+        print(f"فرمت لینک اشتباه است: {ss_url}")
         return None
 
-def build_clash_config(proxies):
-    clash_proxies = []
-    proxy_names = []
-
-    for i, p in enumerate(proxies, start=1):
-        name = f"Server-{i}"
-        proxy_names.append(name)
-        clash_proxies.append({
-            "name": name,
-            "type": "ss",
-            "server": p["ip"],
-            "port": p["port"],
-            "cipher": p["cipher"],
-            "password": p["password"],
-            "udp": True
+def build_clash_yaml(proxies):
+    proxy_list = []
+    for p in proxies:
+        proxy_list.append({
+            'name': p['name'],
+            'type': 'ss',
+            'server': p['ip'],   # ip از DNS lookup
+            'port': p['port'],
+            'cipher': p['method'],
+            'password': p['password'],
+            'udp': True
         })
 
-    config = {
-        "proxies": clash_proxies,
-        "proxy-groups": [
-            {
-                "name": "Auto",
-                "type": "url-test",
-                "proxies": proxy_names,
-                "url": "http://www.gstatic.com/generate_204",
-                "interval": 300
-            }
-        ],
-        "rules": [
-            "MATCH,Auto"
+    yaml_dict = {
+        'proxies': proxy_list,
+        'proxy-groups': [{
+            'name': 'ProjectAinita',
+            'type': 'select',
+            'proxies': [p['name'] for p in proxies]
+        }],
+        'rules': [
+            'MATCH,ProjectAinita'
         ]
     }
 
-    return config
+    return yaml.dump(yaml_dict, sort_keys=False, allow_unicode=True)
 
 def main():
-    text = fetch_config_txt(CONFIG_URL)
-    ss_links = []
-
-    # هر خط حاوی ss:// استخراج شود
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("ss://"):
-            cleaned = clean_ss_link(line)
-            ss_links.append(cleaned)
-
-    logging.info(f"Found {len(ss_links)} ss links")
-
-    proxies = []
-    for ss_link in ss_links:
-        try:
-            parsed = parse_ss_link(ss_link)
-            ip = resolve_ip(parsed["server"])
-            if ip:
-                parsed["ip"] = ip
-                proxies.append(parsed)
-            else:
-                logging.warning(f"Could not resolve IP for {parsed['server']}")
-        except Exception as e:
-            logging.error(f"Failed to parse {ss_link}: {e}")
-
-    if not proxies:
-        logging.error("No valid proxies found!")
+    print("در حال دریافت فایل config...")
+    r = requests.get(CONFIG_URL)
+    if r.status_code != 200:
+        print("خطا در دریافت فایل config")
         return
 
-    # فقط ۴ تا اول
-    proxies = proxies[:4]
+    lines = r.text.strip().splitlines()
+    proxies = []
 
-    config = build_clash_config(proxies)
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parsed = parse_ss_url(line)
+        if parsed is None:
+            continue
+        # DNS lookup برای hostname
+        ip = dns_lookup(parsed['hostname'])
+        parsed['ip'] = ip
+        proxies.append(parsed)
 
-    with open("ProjectAinita_Clash.yaml", "w", encoding="utf-8") as f:
-        yaml.dump(config, f, allow_unicode=True, sort_keys=False)
+    if not proxies:
+        print("هیچ پروکسی معتبری پیدا نشد")
+        return
 
-    logging.info("ProjectAinita_Clash.yaml generated successfully.")
+    print(f"تعداد پروکسی‌های معتبر: {len(proxies)}")
+
+    # ساخت فایل YAML
+    yaml_content = build_clash_yaml(proxies)
+
+    # ذخیره در فایل
+    filename = "ProjectAinita_Clash.yaml"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(yaml_content)
+
+    print(f"فایل کلش ساخته شد: {filename}")
 
 if __name__ == "__main__":
     main()

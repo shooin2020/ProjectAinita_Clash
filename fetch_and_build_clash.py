@@ -9,23 +9,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-HEADERS = """//profile-title: base64:YWluaXRhLm5ldA==
-//profile-update-interval: 1
-//subscription-userinfo: upload=0; download=0; total=10737418240000000; expire=2546249531
-//support-url: info@ainita.net
-//profile-web-page-url: https://ainita.net"""
-
 def fetch_config(url, server_number):
     https_url = url.replace('ssconf://', 'https://')
     logger.info(f"Fetching config from: {https_url}")
-    
     try:
         response = requests.get(https_url, timeout=10)
         response.raise_for_status()
         content = response.text.strip()
         if content.startswith('ss://'):
             content = f"{content}#Server-{server_number}"
-            logger.info(f"Successfully fetched config from {https_url} and added server number")
+            logger.info(f"Fetched config for server {server_number}")
             return content
         else:
             logger.error(f"Invalid config format from {https_url}")
@@ -35,18 +28,13 @@ def fetch_config(url, server_number):
         return None
 
 def parse_ss_link(ss_link):
-    """
-    پارس کردن لینک ss:// و تبدیل به دیکشنری اولیه
-    """
     parts = ss_link.split('#')
     tag = parts[1] if len(parts) > 1 else "Unnamed"
-
     link_body = parts[0][5:]
 
     if '@' in link_body:
         userinfo, hostport = link_body.split('@', 1)
         try:
-            # padding اضافه برای base64
             padding = '=' * ((4 - len(userinfo) % 4) % 4)
             decoded = base64.urlsafe_b64decode(userinfo + padding).decode()
         except Exception:
@@ -60,7 +48,6 @@ def parse_ss_link(ss_link):
 
         if ':' in hostport:
             server, port_and_params = hostport.split(':', 1)
-            # استخراج عدد پورت تا جایی که عدد است
             port_str = ''
             for ch in port_and_params:
                 if ch.isdigit():
@@ -73,55 +60,47 @@ def parse_ss_link(ss_link):
             port = 0
 
         return {
-            "base_name": tag,
+            "tag": tag,
             "cipher": cipher,
             "password": password,
             "server": server,
-            "port": port,
-            "udp": True
+            "port": port
         }
     else:
-        logger.warning("Complex ss link format not handled")
+        logger.warning("Invalid ss link format")
         return None
 
-def resolve_ip(server):
+def resolve_first_ip(hostname):
     try:
-        ip_list = socket.gethostbyname_ex(server)[2]
-        logger.info(f"Resolved IPs for {server}: {ip_list}")
-        return ip_list[:4]  # حداکثر ۴ آی پی
+        ip = socket.gethostbyname(hostname)
+        logger.info(f"Resolved IP for {hostname}: {ip}")
+        return ip
     except Exception as e:
-        logger.error(f"DNS resolution failed for {server}: {str(e)}")
-        return []
+        logger.error(f"DNS resolution failed for {hostname}: {str(e)}")
+        return hostname
 
 def build_clash_yaml(ss_links):
     proxies = []
     proxy_names = []
 
     for i, ss_link in enumerate(ss_links, 1):
-        base_proxy = parse_ss_link(ss_link)
-        if not base_proxy:
-            logger.error(f"Failed to parse ss link: {ss_link}")
+        parsed = parse_ss_link(ss_link)
+        if not parsed:
             continue
 
-        ips = resolve_ip(base_proxy["server"])
-        if not ips:
-            logger.warning(f"No IPs found for server {base_proxy['server']}, using hostname")
-            ips = [base_proxy["server"]]
-
-        for ip_index, ip in enumerate(ips, 1):
-            proxy_name = f"Server-{i}-{ip_index}"
-            proxy_str = (
-                f"ss://{base64.urlsafe_b64encode(f'{base_proxy['cipher']}:{base_proxy['password']}'.encode()).decode().rstrip('=')}@{ip}:{base_proxy['port']}#"
-                + proxy_name
-            )
-            proxies.append(proxy_str)
-            proxy_names.append(proxy_name)
+        ip = resolve_first_ip(parsed["server"])
+        tag = f"Server-{i}"
+        proxy_str = (
+            f"ss://{base64.urlsafe_b64encode(f'{parsed['cipher']}:{parsed['password']}'.encode()).decode().rstrip('=')}"
+            f"@{ip}:{parsed['port']}#{tag}"
+        )
+        proxies.append(proxy_str)
+        proxy_names.append(tag)
 
     yaml_lines = []
     yaml_lines.append("proxies: &id001")
     for p in proxies:
         yaml_lines.append(f"- {p}")
-
     yaml_lines.append("proxy-groups:")
     yaml_lines.append("- name: ProjectAinita")
     yaml_lines.append("  proxies: *id001")
@@ -132,8 +111,6 @@ def build_clash_yaml(ss_links):
     return "\n".join(yaml_lines)
 
 def main():
-    logger.info("Starting config fetch process")
-
     urls = [
         "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-1.csv",
         "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-2.csv",
@@ -142,24 +119,23 @@ def main():
     ]
 
     configs = []
-    for index, url in enumerate(urls, 1):
-        config = fetch_config(url, index)
+    for i, url in enumerate(urls, 1):
+        config = fetch_config(url, i)
         if config:
             configs.append(config)
-    
-    if not configs:
-        logger.error("No configs were successfully fetched!")
-        exit(1)
 
-    clash_yaml = build_clash_yaml(configs)
+    if not configs:
+        logger.error("No configs fetched")
+        return
+
+    yaml = build_clash_yaml(configs)
 
     try:
-        with open('ProjectAinita_Clash.yaml', 'w', encoding='utf-8') as f:
-            f.write(clash_yaml)
-        logger.info("Successfully wrote Clash config to ProjectAinita_Clash.yaml")
+        with open("ProjectAinita_Clash.yaml", "w", encoding="utf-8") as f:
+            f.write(yaml)
+        logger.info("Clash config written to ProjectAinita_Clash.yaml")
     except Exception as e:
-        logger.error(f"Error writing to file: {str(e)}")
-        exit(1)
+        logger.error(f"Error writing YAML: {e}")
 
 if __name__ == "__main__":
     main()

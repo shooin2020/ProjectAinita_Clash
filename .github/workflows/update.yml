@@ -1,9 +1,9 @@
-name: Build Clash Config
+name: Build and Update Clash Config
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # هر ۶ ساعت
+    - cron: '0 0 * * *'  # هر روز ساعت 00:00 اجرا می‌شود
+  workflow_dispatch:     # امکان اجرای دستی
 
 jobs:
   build:
@@ -13,16 +13,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Set up Python
+    - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
 
     - name: Install dependencies
-      run: pip install requests pyyaml
+      run: pip install requests dnspython
 
-    - name: Run script
-      run: python fetch_and_build_clash.py || (echo "💥 Script failed" && exit 1)
+    - name: Run fetch_and_build_clash.py script
+      run: python fetch_and_build_clash.py
 
     - name: Commit and push changes
       env:
@@ -33,4 +33,3 @@ jobs:
         git add ProjectAinita_Clash.yaml || true
         git commit -m "Update Clash config" || echo "No changes to commit"
         git push https://x-access-token:${PAT_TOKEN}@github.com/shooin2020/ProjectAinita_Clash.git HEAD:main
-

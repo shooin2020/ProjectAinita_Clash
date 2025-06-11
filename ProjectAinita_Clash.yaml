@@ -1,41 +1,9 @@
-proxies:
-- name: Server-1
-  type: ss
-  cipher: chacha20-ietf-poly1305
-  password: 51yloQC8D9w1Wae7FHtI65
-  server: 9.223.176.191
-  port: 4817220
-  udp: true
-- name: Server-2
-  type: ss
-  cipher: chacha20-ietf-poly1305
-  password: 51yloQC8D9w1Wae7FHtI65
-  server: 20.240.221.121
-  port: 4817220
-  udp: true
-- name: Server-3
-  type: ss
-  cipher: chacha20-ietf-poly1305
-  password: 51yloQC8D9w1Wae7FHtI65
-  server: 20.240.200.137
-  port: 4817220
-  udp: true
-- name: Server-4
-  type: ss
-  cipher: chacha20-ietf-poly1305
-  password: 51yloQC8D9w1Wae7FHtI65
-  server: 9.223.176.191
-  port: 4817220
-  udp: true
+proxies: []
 proxy-groups:
-- name: Auto
+- interval: 300
+  name: Auto
+  proxies: []
   type: url-test
-  proxies:
-  - Server-1
-  - Server-2
-  - Server-3
-  - Server-4
   url: http://www.gstatic.com/generate_204
-  interval: 300
 rules:
 - MATCH,Auto

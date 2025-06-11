@@ -1,97 +1,106 @@
-import base64
 import requests
+import base64
 import socket
 import yaml
-from urllib.parse import urlparse, unquote
 
-AINTIA_CSV_LINKS = [
-    "https://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-1.csv",
-    "https://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-2.csv",
-    "https://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-3.csv",
-    "https://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-4.csv",
-]
+CONFIGS_URL = "https://raw.githubusercontent.com/4n0nymou3/ss-config-updater/refs/heads/main/configs.txt"
+OUTPUT_FILE = "ProjectAinita_Clash.yaml"
 
-def resolve_domain_to_ips(domain):
+def resolve_ip(domain):
     try:
-        return list(set(item[4][0] for item in socket.getaddrinfo(domain, None)))
-    except:
-        return []
+        return socket.gethostbyname(domain)
+    except Exception as e:
+        print(f"⚠️ خطا در DNS Lookup برای {domain}: {e}")
+        return domain  # اگر نشد، خود دامنه را برمی‌گردانیم
 
 def parse_ss_url(ss_url):
-    if ss_url.startswith("ss://"):
-        ss_url = ss_url[5:]
-    if '#' in ss_url:
-        ss_url, tag = ss_url.split('#', 1)
-    else:
-        tag = 'Ainita'
-    if '@' in ss_url:
-        creds_enc, server_info = ss_url.split('@')
-        creds = base64.urlsafe_b64decode(creds_enc + '=' * (-len(creds_enc) % 4)).decode()
-    else:
-        decoded = base64.urlsafe_b64decode(ss_url + '=' * (-len(ss_url) % 4)).decode()
-        creds, server_info = decoded.split('@')
-    method, password = creds.split(':')
-    server, port = server_info.split(':')
-    return method, password, server, port, tag
+    """
+    پارس کردن لینک ss://  
+    ساختار: ss://base64(method:password)@domain:port#tag
+    """
+    try:
+        prefix_removed = ss_url[5:]  # حذف "ss://"
+        userinfo, rest = prefix_removed.split("@", 1)
+        server_port_tag = rest.split("#")
+        server_port = server_port_tag[0]
+        tag = server_port_tag[1] if len(server_port_tag) > 1 else "Unnamed"
 
-def build_clash_proxies(ss_links):
-    proxies = []
-    used_ips = []
-    for i, ss in enumerate(ss_links):
-        try:
-            method, password, domain, port, tag = parse_ss_url(ss)
-            ips = resolve_domain_to_ips(domain)
-            if not ips:
-                continue
-            ip = [ip for ip in ips if ip not in used_ips]
-            ip = ip[0] if ip else ips[0]
-            used_ips.append(ip)
-            proxies.append({
-                "name": f"{tag}",
-                "type": "ss",
-                "server": ip,
-                "port": int(port),
-                "cipher": method,
-                "password": password,
-                "udp": True
-            })
-        except Exception as e:
-            print(f"خطا در پردازش لینک: {ss} → {e}")
-    return proxies
+        method_password = base64.urlsafe_b64decode(userinfo + "==").decode()
+        method, password = method_password.split(":", 1)
 
-def fetch_ss_links():
-    links = []
-    for i, url in enumerate(AINTIA_CSV_LINKS, start=1):
-        try:
-            res = requests.get(url)
-            if res.status_code == 200:
-                content = res.text.strip().splitlines()
-                for line in content:
-                    if line.startswith("ss://"):
-                        links.append(f"{line}#Server-{i}")
-        except Exception as e:
-            print(f"خطا در دریافت {url}: {e}")
-    return links
+        server = server_port.split(":")[0]
+        port = int(server_port.split(":")[1])
 
-def build_clash_config(proxies):
-    config = {
-        "proxies": proxies,
+        return {
+            "name": tag,
+            "server": server,
+            "port": port,
+            "password": password,
+            "method": method,
+        }
+    except Exception as e:
+        print(f"❌ خطا در پارس کردن لینک {ss_url}: {e}")
+        return None
+
+def main():
+    r = requests.get(CONFIGS_URL)
+    if r.status_code != 200:
+        print("⛔ خطا در دریافت فایل configs.txt")
+        return
+
+    lines = r.text.strip().splitlines()
+    servers = []
+    for line in lines:
+        if not line.startswith("ss://"):
+            continue
+        parsed = parse_ss_url(line)
+        if parsed is None:
+            continue
+
+        # پیدا کردن IP واقعی
+        ip = resolve_ip(parsed["server"])
+        parsed["ip"] = ip
+        servers.append(parsed)
+
+        if len(servers) >= 4:  # فقط 4 سرور لازم داریم
+            break
+
+    if not servers:
+        print("❌ هیچ سروری پیدا نشد")
+        return
+
+    # ساختار فایل کلش
+    clash_yaml = {
+        "proxies": [],
         "proxy-groups": [
             {
                 "name": "ProjectAinita",
                 "type": "select",
-                "proxies": [p["name"] for p in proxies]
+                "proxies": []
             }
         ],
-        "rules": ["MATCH,ProjectAinita"]
+        "rules": [
+            "MATCH,ProjectAinita"
+        ]
     }
-    with open("ProjectAinita_Clash.yaml", "w", encoding="utf-8") as f:
-        yaml.dump(config, f, allow_unicode=True)
+
+    for srv in servers:
+        proxy = {
+            "name": srv["name"],
+            "type": "ss",
+            "server": srv["ip"],
+            "port": srv["port"],
+            "cipher": srv["method"],
+            "password": srv["password"],
+        }
+        clash_yaml["proxies"].append(proxy)
+        clash_yaml["proxy-groups"][0]["proxies"].append(srv["name"])
+
+    # ذخیره فایل
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        yaml.dump(clash_yaml, f, allow_unicode=True)
+
+    print(f"✅ فایل {OUTPUT_FILE} با موفقیت ساخته شد.")
 
 if __name__ == "__main__":
-    print("⏬ در حال دریافت لینک‌ها از Ainita...")
-    ss_links = fetch_ss_links()
-    print("✅ لینک‌ها دریافت شد.")
-    proxies = build_clash_proxies(ss_links)
-    build_clash_config(proxies)
-    print("✅ فایل نهایی ProjectAinita_Clash.yaml ساخته شد.")
+    main()

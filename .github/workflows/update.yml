@@ -2,8 +2,8 @@ name: Build and Update Clash Config
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # هر روز ساعت 00:00 اجرا می‌شود
-  workflow_dispatch:     # امکان اجرای دستی
+    - cron: '0 0 * * *'  # اجرای روزانه ساعت ۰۰:۰۰ UTC
+  workflow_dispatch:     # قابلیت اجرای دستی
 
 jobs:
   build:
@@ -19,7 +19,7 @@ jobs:
         python-version: '3.x'
 
     - name: Install dependencies
-      run: pip install requests dnspython
+      run: pip install requests dnspython pyyaml
 
     - name: Run fetch_and_build_clash.py script
       run: python fetch_and_build_clash.py

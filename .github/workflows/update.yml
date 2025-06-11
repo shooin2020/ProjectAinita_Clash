@@ -1,36 +1,33 @@
-name: Build and Update Clash Config
+name: Update Clash Config
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # اجرای روزانه ساعت ۰۰:۰۰ UTC
-  workflow_dispatch:     # قابلیت اجرای دستی
+    - cron: '0 * * * *'   # هر ساعت رأس ساعت اجرا می‌شود
+  workflow_dispatch:       # اجازه اجرا به صورت دستی هم بده
 
 jobs:
-  build:
+  update-clash-config:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-    - name: Install dependencies
-      run: pip install requests dnspython pyyaml
+      - name: Install dependencies
+        run: pip install pyyaml requests
 
-    - name: Run fetch_and_build_clash.py script
-      run: python fetch_and_build_clash.py
+      - name: Run fetch and build script
+        run: python fetch_and_build_clash.py
 
-    - name: Commit and push changes
-      env:
-        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@users.noreply.github.com"
-        git add ProjectAinita_Clash.yaml || true
-        git commit -m "Update Clash config" || echo "No changes to commit"
-        git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}
-        git push origin HEAD:main
+      - name: Commit and push updated YAML
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ProjectAinita_Clash.yaml
+          git diff --quiet && echo "No changes to commit" || git commit -m "Auto-update Clash config"
+          git push

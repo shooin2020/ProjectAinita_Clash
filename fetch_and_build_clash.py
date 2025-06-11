@@ -1,7 +1,8 @@
 import requests
-import yaml
 import logging
-import re
+import base64
+import socket
+import yaml
 
 logging.basicConfig(level=logging.INFO)
 
@@ -36,46 +37,55 @@ def fetch_config(url, server_number):
         logging.error(f"Error fetching {https_url}: {e}")
         return None
 
-def save_configs_to_file(configs, filename='configs.txt'):
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(HEADERS + '\n\n')
-        f.write('\n\n'.join(configs))
-    logging.info(f"Wrote {len(configs)} configs to {filename}")
+def resolve_domain_to_ips(domain, max_ips=4):
+    try:
+        # فقط IPv4
+        ips = socket.gethostbyname_ex(domain)[2]
+        return ips[:max_ips]
+    except Exception as e:
+        logging.error(f"DNS lookup failed for {domain}: {e}")
+        return []
 
-def parse_configs_file(filename='configs.txt'):
-    with open(filename, 'r', encoding='utf-8') as f:
-        content = f.read()
+def parse_ss_link(ss_link):
+    """
+    پارس کردن لینک ss:// و تبدیل به دیکشنری اولیه
+    """
+    parts = ss_link.split('#')
+    tag = parts[1] if len(parts) > 1 else "Unnamed"
 
-    # استخراج خطوط ss://
-    ss_lines = re.findall(r'(ss://[^\s#]+(?:#[^\s]+)?)', content)
-    proxies = []
-    for line in ss_lines:
-        # می‌تونید اینجا تبدیل‌های لازم به دیکشنری proxy انجام بدید
-        proxies.append(line.strip())
-    logging.info(f"Parsed {len(proxies)} proxies from {filename}")
-    return proxies
+    link_body = parts[0][5:]
 
-def build_clash_yaml(proxies, filename='ProjectAinita_Clash.yaml'):
-    clash_dict = {
-        'proxies': proxies,
-        'proxy-groups': [
-            {
-                'name': 'ProjectAinita',
-                'type': 'select',
-                'proxies': proxies
-            }
-        ],
-        'rules': [
-            'MATCH,ProjectAinita'
-        ]
-    }
+    if '@' in link_body:
+        userinfo, hostport = link_body.split('@', 1)
+        try:
+            decoded = base64.urlsafe_b64decode(userinfo + '===').decode()
+        except Exception:
+            decoded = userinfo
 
-    # اگر لازم بود تبدیل proxies به ساختار دقیق‌تر Clash انجام بدید، اینجا باید ویرایش کنید
-    # الان فقط ss:// لینک‌ها داخل proxies هستند که ممکنه clash قبول نکنه و نیاز به parse دقیق‌تر هست
+        if ':' in decoded:
+            cipher, password = decoded.split(':', 1)
+        else:
+            cipher = decoded
+            password = ""
 
-    with open(filename, 'w', encoding='utf-8') as f:
-        yaml.dump(clash_dict, f, allow_unicode=True)
-    logging.info(f"Created Clash config file: {filename}")
+        if ':' in hostport:
+            server, port = hostport.split(':', 1)
+            port = int(port)
+        else:
+            server = hostport
+            port = 0
+
+        return {
+            "base_name": tag,
+            "cipher": cipher,
+            "password": password,
+            "server": server,
+            "port": port,
+            "udp": True
+        }
+    else:
+        logging.warning("Complex ss link format not handled")
+        return None
 
 def main():
     configs = []
@@ -83,14 +93,64 @@ def main():
         config = fetch_config(url, i)
         if config:
             configs.append(config)
+
     if not configs:
         logging.error("No configs fetched!")
         exit(1)
 
-    save_configs_to_file(configs)
+    proxies = []
+    proxy_names = []
 
-    proxies = parse_configs_file()
-    build_clash_yaml(proxies)
+    for ss_link in configs:
+        base_proxy = parse_ss_link(ss_link)
+        if base_proxy:
+            # آی‌پی های دامنه را بگیریم
+            ips = resolve_domain_to_ips(base_proxy['server'])
+            if not ips:
+                # اگر نشد، حداقل یکبار با همان دامنه ثبت کنیم
+                proxies.append({
+                    "name": base_proxy["base_name"] + "-IP0",
+                    "type": "ss",
+                    "server": base_proxy["server"],
+                    "port": base_proxy["port"],
+                    "cipher": base_proxy["cipher"],
+                    "password": base_proxy["password"],
+                    "udp": True
+                })
+                proxy_names.append(base_proxy["base_name"] + "-IP0")
+            else:
+                # برای هر IP یک پراکسی جدا بسازیم
+                for idx, ip in enumerate(ips):
+                    proxy_name = f"{base_proxy['base_name']}-IP{idx+1}"
+                    proxies.append({
+                        "name": proxy_name,
+                        "type": "ss",
+                        "server": ip,
+                        "port": base_proxy["port"],
+                        "cipher": base_proxy["cipher"],
+                        "password": base_proxy["password"],
+                        "udp": True
+                    })
+                    proxy_names.append(proxy_name)
+
+    clash_dict = {
+        "proxies": proxies,
+        "proxy-groups": [
+            {
+                "name": "ProjectAinita",
+                "type": "select",
+                "proxies": proxy_names
+            }
+        ],
+        "rules": [
+            "MATCH,ProjectAinita"
+        ]
+    }
+
+    with open('ProjectAinita_Clash.yaml', 'w', encoding='utf-8') as f:
+        yaml.dump(clash_dict, f, allow_unicode=True, sort_keys=False)
+
+    logging.info("Clash config file created: ProjectAinita_Clash.yaml")
 
 if __name__ == "__main__":
     main()

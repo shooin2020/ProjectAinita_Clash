@@ -29,20 +29,24 @@ def extract_ss_details(ss_url):
         logger.error(f"Error parsing SS URL {ss_url}: {str(e)}")
         return None
 
-def resolve_ip(hostname):
-    """Resolve hostname to IP address, return hostname if resolution fails."""
+def resolve_ips(hostname):
+    """Resolve hostname to a list of IP addresses."""
     try:
-        ip = socket.gethostbyname(hostname)
-        logger.info(f"Resolved {hostname} to {ip}")
-        return ip
+        # Get all IP addresses for the hostname
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
+        # Extract unique IPs
+        ips = list(set(info[4][0] for info in addr_info))
+        logger.info(f"Resolved {hostname} to IPs: {ips}")
+        return ips
     except socket.gaierror as e:
         logger.warning(f"Failed to resolve {hostname}: {str(e)}. Falling back to hostname.")
-        return hostname  # Fallback to hostname if IP resolution fails
+        return [hostname]
     except Exception as e:
         logger.error(f"Unexpected error resolving {hostname}: {str(e)}")
-        return None
+        return [hostname]
 
-def fetch_config(url, server_number):
+def fetch_config(url, server_number, ip_list, used_ips):
+    """Fetch config and assign a unique IP from ip_list."""
     https_url = url.replace('ssconf://', 'https://')
     logger.info(f"Fetching config from: {https_url}")
     
@@ -58,18 +62,30 @@ def fetch_config(url, server_number):
             details = extract_ss_details(content)
             if details:
                 cipher, password, hostname, port = details
-                # Resolve IP
-                server = resolve_ip(hostname)
-                if server:
-                    return {
-                        'name': f"Server-{server_number}",
-                        'type': 'ss',
-                        'server': server,
-                        'port': port,
-                        'cipher': cipher,
-                        'password': password
-                    }
-            logger.error(f"Invalid config format or IP resolution failed for {https_url}")
+                # Select an unused IP from ip_list
+                for ip in ip_list:
+                    if ip not in used_ips:
+                        used_ips.add(ip)
+                        logger.info(f"Assigned IP {ip} to Server-{server_number}")
+                        return {
+                            'name': f"Server-{server_number}",
+                            'type': 'ss',
+                            'server': ip,
+                            'port': port,
+                            'cipher': cipher,
+                            'password': password
+                        }
+                # If no unused IPs, fall back to hostname
+                logger.warning(f"No unused IPs available for Server-{server_number}. Using hostname {hostname}.")
+                return {
+                    'name': f"Server-{server_number}",
+                    'type': 'ss',
+                    'server': hostname,
+                    'port': port,
+                    'cipher': cipher,
+                    'password': password
+                }
+            logger.error(f"Invalid config format or IP assignment failed for {https_url}")
             return None
         else:
             logger.error(f"Invalid config format from {https_url}")
@@ -88,10 +104,21 @@ def main():
         "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-4.csv"
     ]
 
+    # Resolve IPs for the hostname (assuming all servers use the same hostname)
+    sample_url = urls[0]
+    sample_content = requests.get(sample_url.replace('ssconf://', 'https://'), timeout=10).text.strip()
+    if sample_content.startswith('ss://'):
+        _, _, hostname, _ = extract_ss_details(sample_content)
+        ip_list = resolve_ips(hostname)
+    else:
+        logger.error("Could not determine hostname from first URL")
+        ip_list = []
+
     proxies = []
+    used_ips = set()  # Track used IPs to ensure uniqueness
     for index, url in enumerate(urls, 1):
         logger.info(f"Processing URL: {url}")
-        config = fetch_config(url, index)
+        config = fetch_config(url, index, ip_list, used_ips)
         if config:
             proxies.append(config)
     

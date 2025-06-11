@@ -1,11 +1,41 @@
-proxies: &id001
-- ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTo1MXlsb1FDOEQ5dzFXYWU3Rkh0STY1@9.223.176.191:48172#Server-1
-- ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTo1MXlsb1FDOEQ5dzFXYWU3Rkh0STY1@135.116.16.35:48172#Server-2
-- ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTo1MXlsb1FDOEQ5dzFXYWU3Rkh0STY1@20.240.221.121:48172#Server-3
-- ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTo1MXlsb1FDOEQ5dzFXYWU3Rkh0STY1@9.223.176.191:48172#Server-4
+proxies:
+- name: Server-1
+  type: ss
+  cipher: chacha20-ietf-poly1305
+  password: 51yloQC8D9w1Wae7FHtI65
+  server: 9.223.176.191
+  port: 4817220
+  udp: true
+- name: Server-2
+  type: ss
+  cipher: chacha20-ietf-poly1305
+  password: 51yloQC8D9w1Wae7FHtI65
+  server: 20.240.221.121
+  port: 4817220
+  udp: true
+- name: Server-3
+  type: ss
+  cipher: chacha20-ietf-poly1305
+  password: 51yloQC8D9w1Wae7FHtI65
+  server: 20.240.200.137
+  port: 4817220
+  udp: true
+- name: Server-4
+  type: ss
+  cipher: chacha20-ietf-poly1305
+  password: 51yloQC8D9w1Wae7FHtI65
+  server: 9.223.176.191
+  port: 4817220
+  udp: true
 proxy-groups:
-- name: ProjectAinita
-  proxies: *id001
-  type: select
+- name: Auto
+  type: url-test
+  proxies:
+  - Server-1
+  - Server-2
+  - Server-3
+  - Server-4
+  url: http://www.gstatic.com/generate_204
+  interval: 300
 rules:
-- MATCH,ProjectAinita
+- MATCH,Auto

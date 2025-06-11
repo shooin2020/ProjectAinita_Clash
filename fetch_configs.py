@@ -145,9 +145,9 @@ def main():
 
     try:
         config_yaml = {'proxies': proxies}
-        with open('configs.yaml', 'w', encoding='utf-8') as f:
+        with open('ProjectAinita_Clash.yaml', 'w', encoding='utf-8') as f:
             yaml.dump(config_yaml, f, allow_unicode=True, sort_keys=False)
-        logger.info(f"Successfully wrote {len(proxies)} configs to configs.yaml")
+        logger.info(f"Successfully wrote {len(proxies)} configs to ProjectAinita_Clash.yaml")
     except Exception as e:
         logger.error(f"Error writing to file: {str(e)}")
         exit(1)

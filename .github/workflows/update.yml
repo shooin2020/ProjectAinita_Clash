@@ -17,7 +17,8 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml
       - name: Run script
-        run: python fetch_and_build_clash.py
+        run: python fetch_and_build_clash.py || (echo "💥 Script failed" && exit 1)
+
       - name: Commit and Push
         run: |
           git config --global user.name 'github-actions'

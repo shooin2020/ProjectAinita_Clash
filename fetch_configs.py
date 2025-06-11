@@ -30,7 +30,7 @@ def extract_ss_details(ss_url):
         return None
 
 def resolve_ips(hostname):
-    """Resolve hostname to a list of IP addresses."""
+    """Resolve hostname to a list of unique IP addresses."""
     try:
         # Get all IP addresses for the hostname
         addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
@@ -45,8 +45,8 @@ def resolve_ips(hostname):
         logger.error(f"Unexpected error resolving {hostname}: {str(e)}")
         return [hostname]
 
-def fetch_config(url, server_number, ip_list, used_ips):
-    """Fetch config and assign a unique IP from ip_list."""
+def fetch_config(url, server_number):
+    """Fetch config and extract details."""
     https_url = url.replace('ssconf://', 'https://')
     logger.info(f"Fetching config from: {https_url}")
     
@@ -62,30 +62,14 @@ def fetch_config(url, server_number, ip_list, used_ips):
             details = extract_ss_details(content)
             if details:
                 cipher, password, hostname, port = details
-                # Select an unused IP from ip_list
-                for ip in ip_list:
-                    if ip not in used_ips:
-                        used_ips.add(ip)
-                        logger.info(f"Assigned IP {ip} to Server-{server_number}")
-                        return {
-                            'name': f"Server-{server_number}",
-                            'type': 'ss',
-                            'server': ip,
-                            'port': port,
-                            'cipher': cipher,
-                            'password': password
-                        }
-                # If no unused IPs, fall back to hostname
-                logger.warning(f"No unused IPs available for Server-{server_number}. Using hostname {hostname}.")
                 return {
                     'name': f"Server-{server_number}",
-                    'type': 'ss',
-                    'server': hostname,
-                    'port': port,
                     'cipher': cipher,
-                    'password': password
+                    'password': password,
+                    'hostname': hostname,
+                    'port': port
                 }
-            logger.error(f"Invalid config format or IP assignment failed for {https_url}")
+            logger.error(f"Invalid config format for {https_url}")
             return None
         else:
             logger.error(f"Invalid config format from {https_url}")
@@ -104,27 +88,60 @@ def main():
         "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-4.csv"
     ]
 
-    # Resolve IPs for the hostname (assuming all servers use the same hostname)
-    sample_url = urls[0]
-    sample_content = requests.get(sample_url.replace('ssconf://', 'https://'), timeout=10).text.strip()
-    if sample_content.startswith('ss://'):
-        _, _, hostname, _ = extract_ss_details(sample_content)
-        ip_list = resolve_ips(hostname)
-    else:
-        logger.error("Could not determine hostname from first URL")
-        ip_list = []
-
-    proxies = []
-    used_ips = set()  # Track used IPs to ensure uniqueness
+    # Fetch configs and collect hostname details
+    configs = []
     for index, url in enumerate(urls, 1):
         logger.info(f"Processing URL: {url}")
-        config = fetch_config(url, index, ip_list, used_ips)
+        config = fetch_config(url, index)
         if config:
-            proxies.append(config)
+            configs.append(config)
     
-    if not proxies:
+    if not configs:
         logger.error("No configs were successfully fetched!")
         exit(1)
+
+    # Collect unique hostnames and resolve IPs
+    hostnames = set(config['hostname'] for config in configs)
+    logger.info(f"Unique hostnames found: {hostnames}")
+    
+    ip_to_config = {}
+    for hostname in hostnames:
+        ips = resolve_ips(hostname)
+        for ip in ips:
+            # Find the first config with this hostname to get cipher, password, port
+            for config in configs:
+                if config['hostname'] == hostname:
+                    ip_to_config[ip] = {
+                        'cipher': config['cipher'],
+                        'password': config['password'],
+                        'port': config['port']
+                    }
+                    break
+
+    # Create proxies for each unique IP
+    proxies = []
+    for index, (ip, config_details) in enumerate(ip_to_config.items(), 1):
+        proxies.append({
+            'name': f"Server-{index}",
+            'type': 'ss',
+            'server': ip,
+            'port': config_details['port'],
+            'cipher': config_details['cipher'],
+            'password': config_details['password']
+        })
+
+    if not proxies:
+        logger.error("No IPs were resolved, falling back to hostnames!")
+        # Fallback to hostnames if no IPs are resolved
+        for index, config in enumerate(configs, 1):
+            proxies.append({
+                'name': f"Server-{index}",
+                'type': 'ss',
+                'server': config['hostname'],
+                'port': config['port'],
+                'cipher': config['cipher'],
+                'password': config['password']
+            })
 
     try:
         config_yaml = {'proxies': proxies}

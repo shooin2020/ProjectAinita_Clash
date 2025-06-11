@@ -18,24 +18,28 @@ def extract_ss_details(ss_url):
         # Split at '@' to separate credentials and server info
         creds, server_info = ss_part.split('@')
         # Decode base64 credentials (cipher:password)
-        decoded_creds = base64.b64decode(creds).decode('utf-8')
+        decoded_creds = base64.b64decode(creds + '==').decode('utf-8')  # Add padding if needed
         cipher, password = decoded_creds.split(':')
         # Split server and port
         server, port = server_info.split(':')
         port = port.split('/')[0]  # Remove any query params
+        logger.info(f"Parsed SS URL: cipher={cipher}, password={password}, server={server}, port={port}")
         return cipher, password, server, int(port)
     except Exception as e:
-        logger.error(f"Error parsing SS URL: {str(e)}")
+        logger.error(f"Error parsing SS URL {ss_url}: {str(e)}")
         return None
 
 def resolve_ip(hostname):
-    """Resolve hostname to IP address."""
+    """Resolve hostname to IP address, return hostname if resolution fails."""
     try:
         ip = socket.gethostbyname(hostname)
         logger.info(f"Resolved {hostname} to {ip}")
         return ip
     except socket.gaierror as e:
-        logger.error(f"Error resolving {hostname}: {str(e)}")
+        logger.warning(f"Failed to resolve {hostname}: {str(e)}. Falling back to hostname.")
+        return hostname  # Fallback to hostname if IP resolution fails
+    except Exception as e:
+        logger.error(f"Unexpected error resolving {hostname}: {str(e)}")
         return None
 
 def fetch_config(url, server_number):
@@ -46,6 +50,7 @@ def fetch_config(url, server_number):
         response = requests.get(https_url, timeout=10)
         response.raise_for_status()
         content = response.text.strip()
+        logger.info(f"Raw content from {https_url}: {content}")
         if content.startswith('ss://'):
             content = f"{content}#Server-{server_number}"
             logger.info(f"Successfully fetched config from {https_url}")
@@ -54,12 +59,12 @@ def fetch_config(url, server_number):
             if details:
                 cipher, password, hostname, port = details
                 # Resolve IP
-                ip = resolve_ip(hostname)
-                if ip:
+                server = resolve_ip(hostname)
+                if server:
                     return {
                         'name': f"Server-{server_number}",
                         'type': 'ss',
-                        'server': ip,
+                        'server': server,
                         'port': port,
                         'cipher': cipher,
                         'password': password

@@ -24,18 +24,15 @@ jobs:
       - name: Run fetch and build script
         run: python fetch_and_build_clash.py
 
-      - name: Commit and push updated YAML
+      - name: Commit and push changes
+        env:
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add ProjectAinita_Clash.yaml
-        echo "----- git diff stat -----"
-        git diff --stat --cached || echo "No staged changes"
-        echo "----- ProjectAinita_Clash.yaml content -----"
-        cat ProjectAinita_Clash.yaml
-        if git diff --cached --quiet; then
-        echo "No changes to commit"
-        git commit -m "Auto-update Clash config"
-        git push
-        fi
+        git config --global user.name "github-actions"
+        git config --global user.email "github-actions@users.noreply.github.com"
+        git add ProjectAinita_Clash.yaml || true
+        git commit -m "Update Clash config" || echo "No changes to commit"
+        git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}
+        git push origin HEAD:main
+
 

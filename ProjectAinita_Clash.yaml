@@ -1,0 +1,7 @@
+proxies: []
+proxy-groups:
+- name: ProjectAinita
+  proxies: []
+  type: select
+rules:
+- MATCH,ProjectAinita

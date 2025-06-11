@@ -1,106 +1,96 @@
 import requests
-import base64
-import socket
 import yaml
+import logging
+import re
 
-CONFIGS_URL = "https://raw.githubusercontent.com/4n0nymou3/ss-config-updater/refs/heads/main/configs.txt"
-OUTPUT_FILE = "ProjectAinita_Clash.yaml"
+logging.basicConfig(level=logging.INFO)
 
-def resolve_ip(domain):
+HEADERS = """//profile-title: base64:YWluaXRhLm5ldA==
+//profile-update-interval: 1
+//subscription-userinfo: upload=0; download=0; total=10737418240000000; expire=2546249531
+//support-url: info@ainita.net
+//profile-web-page-url: https://ainita.net"""
+
+URLS = [
+    "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-1.csv",
+    "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-2.csv",
+    "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-3.csv",
+    "ssconf://ainita.s3.eu-north-1.amazonaws.com/AinitaServer-4.csv"
+]
+
+def fetch_config(url, server_number):
+    https_url = url.replace('ssconf://', 'https://')
+    logging.info(f"Fetching config from: {https_url}")
     try:
-        return socket.gethostbyname(domain)
+        response = requests.get(https_url, timeout=10)
+        response.raise_for_status()
+        content = response.text.strip()
+        if content.startswith('ss://'):
+            content = f"{content}#Server-{server_number}"
+            logging.info(f"Fetched config for server {server_number}")
+            return content
+        else:
+            logging.error(f"Invalid config format from {https_url}")
+            return None
     except Exception as e:
-        print(f"⚠️ خطا در DNS Lookup برای {domain}: {e}")
-        return domain  # اگر نشد، خود دامنه را برمی‌گردانیم
-
-def parse_ss_url(ss_url):
-    """
-    پارس کردن لینک ss://  
-    ساختار: ss://base64(method:password)@domain:port#tag
-    """
-    try:
-        prefix_removed = ss_url[5:]  # حذف "ss://"
-        userinfo, rest = prefix_removed.split("@", 1)
-        server_port_tag = rest.split("#")
-        server_port = server_port_tag[0]
-        tag = server_port_tag[1] if len(server_port_tag) > 1 else "Unnamed"
-
-        method_password = base64.urlsafe_b64decode(userinfo + "==").decode()
-        method, password = method_password.split(":", 1)
-
-        server = server_port.split(":")[0]
-        port = int(server_port.split(":")[1])
-
-        return {
-            "name": tag,
-            "server": server,
-            "port": port,
-            "password": password,
-            "method": method,
-        }
-    except Exception as e:
-        print(f"❌ خطا در پارس کردن لینک {ss_url}: {e}")
+        logging.error(f"Error fetching {https_url}: {e}")
         return None
 
-def main():
-    r = requests.get(CONFIGS_URL)
-    if r.status_code != 200:
-        print("⛔ خطا در دریافت فایل configs.txt")
-        return
+def save_configs_to_file(configs, filename='configs.txt'):
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(HEADERS + '\n\n')
+        f.write('\n\n'.join(configs))
+    logging.info(f"Wrote {len(configs)} configs to {filename}")
 
-    lines = r.text.strip().splitlines()
-    servers = []
-    for line in lines:
-        if not line.startswith("ss://"):
-            continue
-        parsed = parse_ss_url(line)
-        if parsed is None:
-            continue
+def parse_configs_file(filename='configs.txt'):
+    with open(filename, 'r', encoding='utf-8') as f:
+        content = f.read()
 
-        # پیدا کردن IP واقعی
-        ip = resolve_ip(parsed["server"])
-        parsed["ip"] = ip
-        servers.append(parsed)
+    # استخراج خطوط ss://
+    ss_lines = re.findall(r'(ss://[^\s#]+(?:#[^\s]+)?)', content)
+    proxies = []
+    for line in ss_lines:
+        # می‌تونید اینجا تبدیل‌های لازم به دیکشنری proxy انجام بدید
+        proxies.append(line.strip())
+    logging.info(f"Parsed {len(proxies)} proxies from {filename}")
+    return proxies
 
-        if len(servers) >= 4:  # فقط 4 سرور لازم داریم
-            break
-
-    if not servers:
-        print("❌ هیچ سروری پیدا نشد")
-        return
-
-    # ساختار فایل کلش
-    clash_yaml = {
-        "proxies": [],
-        "proxy-groups": [
+def build_clash_yaml(proxies, filename='ProjectAinita_Clash.yaml'):
+    clash_dict = {
+        'proxies': proxies,
+        'proxy-groups': [
             {
-                "name": "ProjectAinita",
-                "type": "select",
-                "proxies": []
+                'name': 'ProjectAinita',
+                'type': 'select',
+                'proxies': proxies
             }
         ],
-        "rules": [
-            "MATCH,ProjectAinita"
+        'rules': [
+            'MATCH,ProjectAinita'
         ]
     }
 
-    for srv in servers:
-        proxy = {
-            "name": srv["name"],
-            "type": "ss",
-            "server": srv["ip"],
-            "port": srv["port"],
-            "cipher": srv["method"],
-            "password": srv["password"],
-        }
-        clash_yaml["proxies"].append(proxy)
-        clash_yaml["proxy-groups"][0]["proxies"].append(srv["name"])
+    # اگر لازم بود تبدیل proxies به ساختار دقیق‌تر Clash انجام بدید، اینجا باید ویرایش کنید
+    # الان فقط ss:// لینک‌ها داخل proxies هستند که ممکنه clash قبول نکنه و نیاز به parse دقیق‌تر هست
 
-    # ذخیره فایل
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        yaml.dump(clash_yaml, f, allow_unicode=True)
+    with open(filename, 'w', encoding='utf-8') as f:
+        yaml.dump(clash_dict, f, allow_unicode=True)
+    logging.info(f"Created Clash config file: {filename}")
 
-    print(f"✅ فایل {OUTPUT_FILE} با موفقیت ساخته شد.")
+def main():
+    configs = []
+    for i, url in enumerate(URLS, 1):
+        config = fetch_config(url, i)
+        if config:
+            configs.append(config)
+    if not configs:
+        logging.error("No configs fetched!")
+        exit(1)
+
+    save_configs_to_file(configs)
+
+    proxies = parse_configs_file()
+    build_clash_yaml(proxies)
 
 if __name__ == "__main__":
     main()

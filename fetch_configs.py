@@ -127,7 +127,8 @@ def main():
             'server': ip,
             'port': config_details['port'],
             'cipher': config_details['cipher'],
-            'password': config_details['password']
+            'password': config_details['password'],
+            'udp': True  # Add udp: true for Clash
         })
 
     if not proxies:
@@ -140,11 +141,26 @@ def main():
                 'server': config['hostname'],
                 'port': config['port'],
                 'cipher': config['cipher'],
-                'password': config['password']
+                'password': config['password'],
+                'udp': True  # Add udp: true for Clash
             })
 
+    # Create YAML structure with proxy-groups and rules
+    config_yaml = {
+        'proxies': proxies,
+        'proxy-groups': [
+            {
+                'name': 'Auto',
+                'type': 'url-test',
+                'proxies': [proxy['name'] for proxy in proxies],
+                'url': 'http://www.gstatic.com/generate_204',
+                'interval': 300
+            }
+        ],
+        'rules': ['MATCH,Auto']
+    }
+
     try:
-        config_yaml = {'proxies': proxies}
         with open('ProjectAinita_Clash.yaml', 'w', encoding='utf-8') as f:
             yaml.dump(config_yaml, f, allow_unicode=True, sort_keys=False)
         logger.info(f"Successfully wrote {len(proxies)} configs to ProjectAinita_Clash.yaml")

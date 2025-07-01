@@ -2,7 +2,7 @@ import requests
 import logging
 import socket
 import base64
-import json
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -118,54 +118,54 @@ def main():
                     }
                     break
 
-    # Create outbounds for each unique IP
-    outbounds = []
+    # Create proxies for each unique IP
+    proxies = []
     for index, (ip, config_details) in enumerate(ip_to_config.items(), 1):
-        outbounds.append({
-            'type': 'shadowsocks',
-            'tag': f"Server-{index}",
+        proxies.append({
+            'name': f"Server-{index}",
+            'type': 'ss',
             'server': ip,
-            'server_port': config_details['port'],
-            'method': config_details['cipher'],
-            'password': config_details['password']
+            'port': config_details['port'],
+            'cipher': config_details['cipher'],
+            'password': config_details['password'],
+            'udp': True  # Add udp: true for Clash
         })
 
-    if not outbounds:
+    if not proxies:
         logger.error("No IPs were resolved, falling back to hostnames!")
         # Fallback to hostnames if no IPs are resolved
         for index, config in enumerate(configs, 1):
-            outbounds.append({
-                'type': 'shadowsocks',
-                'tag': f"Server-{index}",
+            proxies.append({
+                'name': f"Server-{index}",
+                'type': 'ss',
                 'server': config['hostname'],
-                'server_port': config['port'],
-                'method': config['cipher'],
-                'password': config['password']
+                'port': config['port'],
+                'cipher': config['cipher'],
+                'password': config['password'],
+                'udp': True  # Add udp: true for Clash
             })
 
-    # Add selector group
-    outbounds.append({
-        'type': 'selector',
-        'tag': 'Auto',
-        'outbounds': [outbound['tag'] for outbound in outbounds if outbound['type'] == 'shadowsocks']
-    })
-
-    # Create Sing-box JSON structure with route
-    config_json = {
-        'outbounds': outbounds,
-        'route': {
-            'rules': [
-                {'outbound': 'Auto'}
-            ]
-        }
+    # Create YAML structure with proxy-groups and rules
+    config_yaml = {
+        'proxies': proxies,
+        'proxy-groups': [
+            {
+                'name': 'Auto',
+                'type': 'url-test',
+                'proxies': [proxy['name'] for proxy in proxies],
+                'url': 'http://www.gstatic.com/generate_204',
+                'interval': 300
+            }
+        ],
+        'rules': ['MATCH,Auto']
     }
 
     try:
-        with open('ProjectAinita_Singbox.json', 'w', encoding='utf-8') as f:
-            json.dump(config_json, f, indent=2, ensure_ascii=False)
-        logger.info(f"Successfully wrote {len(outbounds)-1} configs to ProjectAinita_Singbox.json")
+        with open('ProjectAinita_Clash.yaml', 'w', encoding='utf-8') as f:
+            yaml.dump(config_yaml, f, allow_unicode=True, sort_keys=False)
+        logger.info(f"Successfully wrote {len(proxies)} configs to ProjectAinita_Clash.yaml")
     except Exception as e:
-        logger.error(f"Error writing to ProjectAinita_Singbox.json: {str(e)}")
+        logger.error(f"Error writing to file: {str(e)}")
         exit(1)
 
 if __name__ == "__main__":

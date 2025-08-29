@@ -8,7 +8,7 @@ proxies:
   udp: true
 - name: Server-2
   type: ss
-  server: 4.223.106.240
+  server: 4.223.100.248
   port: 48172
   cipher: chacha20-ietf-poly1305
   password: 51yloQC8D9w1Wae7FHtI65
@@ -22,7 +22,7 @@ proxies:
   udp: true
 - name: Server-4
   type: ss
-  server: 4.223.100.248
+  server: 4.223.106.240
   port: 48172
   cipher: chacha20-ietf-poly1305
   password: 51yloQC8D9w1Wae7FHtI65
